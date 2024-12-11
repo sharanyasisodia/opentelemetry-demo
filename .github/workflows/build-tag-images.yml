@@ -1,0 +1,123 @@
+name: Build and Tag Images
+
+on:
+  workflow_call:
+    inputs:
+      push:
+        description: Should the images be pushed
+        default: false
+        required: false
+        type: boolean
+      version:
+        description: The version used when tagging the image
+        default: 'dev'
+        required: false
+        type: string
+      ecr_repo:
+        description: AWS ECR repository URL
+        default: '463470955858.dkr.ecr.us-east-1.amazonaws.com/otel-demo'
+        required: false
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        file_tag:
+          - context: ./
+            file: ./src/emailservice/Dockerfile
+            setup-qemu: true
+            tag_suffix: emailservice
+          - context: ./
+            file: ./src/frauddetectionservice/Dockerfile
+            setup-qemu: true
+            tag_suffix: frauddetectionservice
+          - context: ./
+            file: ./src/frontend/Dockerfile
+            setup-qemu: true
+            tag_suffix: frontend
+          - context: ./
+            file: ./src/frontendproxy/Dockerfile
+            setup-qemu: true
+            tag_suffix: frontendproxy
+          - context: ./
+            file: ./src/frontend/Dockerfile.cypress
+            setup-qemu: true
+            tag_suffix: frontend-tests
+          - context: ./
+            file: ./src/imageprovider/Dockerfile
+            setup-qemu: true
+            tag_suffix: imageprovider
+          - context: ./
+            file: ./src/kafka/Dockerfile
+            setup-qemu: true
+            tag_suffix: kafka
+          - context: ./
+            file: ./src/loadgenerator/Dockerfile
+            setup-qemu: true
+            tag_suffix: loadgenerator
+          - context: ./
+            file: ./src/paymentservice/Dockerfile
+            setup-qemu: true
+            tag_suffix: paymentservice
+          - context: ./
+            file: ./src/productcatalogservice/Dockerfile
+            setup-qemu: true
+            tag_suffix: productcatalogservice
+          - context: ./
+            file: ./src/quoteservice/Dockerfile
+            setup-qemu: true
+            tag_suffix: quoteservice
+          - context: ./
+            file: ./src/recommendationservice/Dockerfile
+            setup-qemu: true
+            tag_suffix: recommendationservice
+          - context: ./
+            file: ./src/shippingservice/Dockerfile
+            setup-qemu: true
+            tag_suffix: shippingservice
+          - context: ./
+            file: ./src/flagd-ui/Dockerfile
+            setup-qemu: true
+            tag_suffix: flagdui
+          - context: ./
+            file: ./test/tracetesting/Dockerfile
+            setup-qemu: true
+            tag_suffix: traceBasedTests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS CLI
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+          aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+          aws configure set default.region us-east-1
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        run: |
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ inputs.ecr_repo }}
+
+      - name: Build and Push Images to Amazon ECR
+        if: steps.check_changes.outputs.skip == 'false'
+        run: |
+          IMAGE_TAG=${{ inputs.version }}-${{ matrix.file_tag.tag_suffix }}
+          FULL_IMAGE_NAME=${{ inputs.ecr_repo }}:$IMAGE_TAG
+
+          # Build the Docker image.
+          docker build -t $FULL_IMAGE_NAME -f ${{ matrix.file_tag.file }} ${{ matrix.file_tag.context }}
+
+          # Push the image to Amazon ECR.
+          docker push $FULL_IMAGE_NAME
